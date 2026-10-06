@@ -1,15 +1,17 @@
-import os
-import sys
+# import os
+# import sys
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
+# sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-from database import Base, get_db  # noqa: E402
-from main import app  # noqa: E402
+from app.database import Base, get_db
+from app import models
+from app.main import app
 
 TEST_DB_URL = "sqlite:///./test_vulntracker.db"
 engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
@@ -148,3 +150,79 @@ def test_delete_scan():
 
     resp = client.delete(f"/scans/{scan_id}", headers=auth_headers(token))
     assert resp.status_code == 204
+
+
+def test_create_and_retrieve_unprotected_share_link():
+    token = register_and_login()
+    scan = client.post("/scans", json={
+        "title": "Shared finding",
+        "severity": "high",
+        "affected_component": "API",
+    }, headers=auth_headers(token)).json()
+
+    created = client.post(f"/scans/{scan['id']}/share", headers=auth_headers(token))
+    assert created.status_code == 200
+    share_url = created.json()["share_url"]
+    assert share_url.startswith("http://localhost:8000/share/")
+
+    shared = client.get(share_url.replace("http://localhost:8000", ""))
+    assert shared.status_code == 200
+    assert shared.json()["title"] == "Shared finding"
+    assert "owner_id" not in shared.json()
+
+
+def test_password_protected_share_link_requires_correct_password():
+    token = register_and_login()
+    scan = client.post("/scans", json={
+        "title": "Protected finding",
+        "affected_component": "API",
+    }, headers=auth_headers(token)).json()
+    created = client.post(
+        f"/scans/{scan['id']}/share",
+        json={"password": "stakeholder-secret"},
+        headers=auth_headers(token),
+    )
+    share_path = created.json()["share_url"].replace("http://localhost:8000", "")
+
+    assert client.get(share_path).status_code == 401
+    assert client.get(share_path, params={"password": "wrong"}).status_code == 401
+    response = client.get(share_path, params={"password": "stakeholder-secret"})
+    assert response.status_code == 200
+    assert response.json()["title"] == "Protected finding"
+
+
+def test_share_link_expires_after_24_hours():
+    token = register_and_login()
+    scan = client.post("/scans", json={
+        "title": "Expiring finding",
+        "affected_component": "API",
+    }, headers=auth_headers(token)).json()
+    created = client.post(f"/scans/{scan['id']}/share", json={}, headers=auth_headers(token))
+    share_path = created.json()["share_url"].replace("http://localhost:8000", "")
+
+    db = TestingSessionLocal()
+    try:
+        link = db.query(models.SharedReportLink).one()
+        assert link.expires_at <= datetime.utcnow() + timedelta(hours=24)
+        link.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        db.commit()
+    finally:
+        db.close()
+
+    assert client.get(share_path).status_code == 404
+
+
+def test_share_link_cannot_be_created_for_another_users_scan():
+    owner_token = register_and_login()
+    scan = client.post("/scans", json={
+        "title": "Private finding",
+        "affected_component": "API",
+    }, headers=auth_headers(owner_token)).json()
+    other_token = register_and_login("bob", "bob@example.com")
+
+    response = client.post(
+        f"/scans/{scan['id']}/share",
+        json={},
+        headers=auth_headers(other_token),
+    )
+    assert response.status_code == 404

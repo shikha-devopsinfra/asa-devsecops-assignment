@@ -1,14 +1,32 @@
-DATABASE_URL = "sqlite:///./vulntracker.db"
+import os
+import secrets
 
-SECRET_KEY = "v3ry-s3cr3t-jwt-k3y-do-not-share"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Database credentials (migrate to env vars before production deployment)
-DB_USER = "vulntracker_app"
-DB_PASSWORD = "Tr@cker2024!"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./vulntracker.db")
 
-# Internal service API key
-ADMIN_API_KEY = "sk-vt-prod-8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c"
+SECRET_KEY = os.getenv("SECRET_KEY")
 
-NOTIFY_SERVICE_URL = "http://localhost:3001"
+if not SECRET_KEY:
+    if os.getenv("APP_ENV", "development").lower() == "production":
+        raise RuntimeError("SECRET_KEY must be set in production")
+    SECRET_KEY = secrets.token_urlsafe(32)
+
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+)
+
+DB_USER = os.getenv("DB_USER", "")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
+
+NOTIFY_SERVICE_URL = os.getenv(
+    "NOTIFY_SERVICE_URL",
+    "http://localhost:3001",
+)
+
+PUBLIC_BASE_URL = os.getenv(
+    "PUBLIC_BASE_URL",
+    "http://localhost:8000",
+)

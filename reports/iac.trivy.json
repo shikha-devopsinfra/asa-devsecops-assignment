@@ -1,0 +1,54 @@
+{
+  "SchemaVersion": 2,
+  "ReportID": "01a110fb-82ac-792e-a223-c09290555c9c",
+  "CreatedAt": "2026-10-06T17:01:20.8766016+05:30",
+  "ArtifactName": "helm/vulntracker",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "templates/deployment.yaml",
+      "Class": "config",
+      "Type": "helm",
+      "MisconfSummary": {
+        "Successes": 95,
+        "Failures": 0
+      }
+    },
+    {
+      "Target": "templates/namespace.yaml",
+      "Class": "config",
+      "Type": "kubernetes",
+      "MisconfSummary": {
+        "Successes": 58,
+        "Failures": 0
+      }
+    },
+    {
+      "Target": "templates/networkpolicy.yaml",
+      "Class": "config",
+      "Type": "helm",
+      "MisconfSummary": {
+        "Successes": 58,
+        "Failures": 0
+      }
+    },
+    {
+      "Target": "templates/service.yaml",
+      "Class": "config",
+      "Type": "helm",
+      "MisconfSummary": {
+        "Successes": 59,
+        "Failures": 0
+      }
+    },
+    {
+      "Target": "templates/serviceaccount.yaml",
+      "Class": "config",
+      "Type": "helm",
+      "MisconfSummary": {
+        "Successes": 58,
+        "Failures": 0
+      }
+    }
+  ]
+}

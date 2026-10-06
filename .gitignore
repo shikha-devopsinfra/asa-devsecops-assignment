@@ -20,3 +20,13 @@ env/
 htmlcov/
 node_modules/
 .claude/
+
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+.venv/
+__pycache__/
+.pytest_cache/
+notify/node_modules/

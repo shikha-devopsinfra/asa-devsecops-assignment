@@ -1,0 +1,58 @@
+replicaCount: 2
+
+image:
+  repository: asa-assignment
+  tag: ""
+  digest: "sha256:9ff8854de9ecf469660c72c8b6ffb44491146a54d9a9c68abc1970314f1ccabd"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+container:
+  port: 8000
+
+env:
+  appEnv: production
+  jwtAlgorithm: HS256
+  accessTokenExpireMinutes: "30"
+  notifyServiceUrl: "http://notify:3001"
+  publicBaseUrl: "http://vulntracker:8000"
+
+secret:
+  existingSecret: vulntracker-secrets
+  secretKey: SECRET_KEY
+  databaseUrlKey: DATABASE_URL
+  adminApiKeyKey: ADMIN_API_KEY
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector: {}
+  ingressPodSelector:
+    matchLabels:
+      app.kubernetes.io/name: vulntracker
+
+serviceAccount:
+  create: true
+  name: vulntracker
+  automountServiceAccountToken: false
+
+
+

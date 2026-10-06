@@ -1,21 +1,26 @@
 import logging
+import hashlib
+import hmac
+import secrets
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-import models
-from auth import create_access_token, get_current_user, get_password_hash, verify_password
-from config import NOTIFY_SERVICE_URL
-from database import engine, get_db, search_scans_by_query
+from app import models
+from app.auth import create_access_token, get_current_user, get_password_hash, verify_password
+from app.config import NOTIFY_SERVICE_URL, PUBLIC_BASE_URL
+from app.database import engine, get_db, search_scans_by_query
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+share_password_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -107,6 +112,25 @@ class ScanOut(BaseModel):
         from_attributes = True
 
 
+class ShareRequest(BaseModel):
+    password: Optional[str] = None
+
+
+class SharedScanOut(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    severity: str
+    status: str
+    cve_id: Optional[str]
+    affected_component: str
+    remediation_notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -120,6 +144,10 @@ def _fire_notify(event: str, payload: dict) -> None:
         )
     except Exception as exc:
         logger.warning("Notification service unreachable: %s", exc)
+
+
+def _hash_share_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +225,61 @@ def create_scan(
         "severity": scan.severity,
         "owner": current_user.username,
     })
+    return scan
+
+
+@app.post("/scans/{scan_id}/share")
+def create_share_link(
+    scan_id: int,
+    payload: Optional[ShareRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    scan = db.query(models.ScanResult).filter(
+        models.ScanResult.id == scan_id,
+        models.ScanResult.owner_id == current_user.id,
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    password = payload.password if payload is not None else None
+    if password is not None and not password.strip():
+        raise HTTPException(status_code=422, detail="Password must not be blank")
+
+    token = secrets.token_urlsafe(32)
+    share_link = models.SharedReportLink(
+        scan_id=scan.id,
+        token_hash=_hash_share_token(token),
+        password_hash=(
+            share_password_context.hash(password)
+            if password is not None
+            else None
+        ),
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+    )
+    db.add(share_link)
+    db.commit()
+    return {"share_url": f"{PUBLIC_BASE_URL.rstrip('/')}/share/{token}"}
+
+
+@app.get("/share/{token}", response_model=SharedScanOut)
+def get_shared_scan(
+    token: str,
+    password: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    share_link = db.query(models.SharedReportLink).filter(
+        models.SharedReportLink.token_hash == _hash_share_token(token),
+        models.SharedReportLink.expires_at > datetime.utcnow(),
+    ).first()
+    if not share_link:
+        raise HTTPException(status_code=404, detail="Share link not found or expired")
+    if share_link.password_hash:
+        if password is None or not share_password_context.verify(password, share_link.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid or missing share password")
+
+    scan = db.query(models.ScanResult).filter(models.ScanResult.id == share_link.scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Shared scan not found")
     return scan
 
 
